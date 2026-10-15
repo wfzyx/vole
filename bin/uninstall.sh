@@ -1415,6 +1415,8 @@ _scan_finalize_index() {
 scan_applications_linux() {
     local temp_file
     temp_file=$(create_temp_file) || return 1
+    local now_epoch
+    now_epoch=$(get_epoch_seconds)
     local seen_names="|"
 
     local -a scan_dirs=(
@@ -1467,8 +1469,58 @@ scan_applications_linux() {
                 fi
             fi
 
-            local mtime
-            mtime=$("$STAT_BSD" -f%m "$desktop" 2> /dev/null || echo 0)
+            # Determine last used time from app config/state/cache or binary access
+            local last_used_epoch=0
+            local -a candidate_dirs=(
+                "$HOME/.config/$bundle_id"
+                "$HOME/.local/share/$bundle_id"
+                "$HOME/.cache/$bundle_id"
+                "$HOME/.var/app/$bundle_id"
+            )
+            for cdir in "${candidate_dirs[@]}"; do
+                if [[ -d "$cdir" ]]; then
+                    local d_mtime
+                    d_mtime=$("$STAT_BSD" -f%m "$cdir" 2> /dev/null || echo 0)
+                    if [[ "$d_mtime" =~ ^[0-9]+$ && $d_mtime -gt $last_used_epoch ]]; then
+                        last_used_epoch=$d_mtime
+                    fi
+                fi
+            done
+
+            if [[ $last_used_epoch -eq 0 && -n "${exec_cmd:-}" ]]; then
+                local bin_path
+                bin_path=$(command -v "$exec_cmd" 2> /dev/null || true)
+                if [[ -x "$bin_path" ]]; then
+                    local b_atime
+                    b_atime=$(stat -c%X "$bin_path" 2> /dev/null || echo 0)
+                    if [[ "$b_atime" =~ ^[0-9]+$ && $b_atime -gt $last_used_epoch ]]; then
+                        last_used_epoch=$b_atime
+                    fi
+                fi
+            fi
+
+            if [[ $last_used_epoch -eq 0 ]]; then
+                last_used_epoch=$("$STAT_BSD" -f%m "$desktop" 2> /dev/null || echo 0)
+            fi
+
+            local last_used_str="Unknown"
+            if [[ "$last_used_epoch" =~ ^[0-9]+$ && $last_used_epoch -gt 0 ]]; then
+                local days_ago=$(((now_epoch - last_used_epoch) / 86400))
+                ((days_ago < 0)) && days_ago=0
+                if ((days_ago == 0)); then
+                    last_used_str="Today"
+                elif ((days_ago == 1)); then
+                    last_used_str="Yesterday"
+                elif ((days_ago < 7)); then
+                    last_used_str="${days_ago}d ago"
+                elif ((days_ago < 30)); then
+                    last_used_str="$((days_ago / 7))w ago"
+                elif ((days_ago < 365)); then
+                    last_used_str="$((days_ago / 30))m ago"
+                else
+                    last_used_str="$((days_ago / 365))y ago"
+                fi
+            fi
 
             local human_size="Unknown"
             if [[ $size_kb -gt 0 ]]; then
@@ -1481,7 +1533,7 @@ scan_applications_linux() {
                 fi
             fi
 
-            echo "$mtime|$desktop|$name|$bundle_id|$human_size|Unknown|$size_kb" >> "$temp_file"
+            echo "$last_used_epoch|$desktop|$name|$bundle_id|$human_size|$last_used_str|$size_kb" >> "$temp_file"
         done
     done
 
