@@ -1327,6 +1327,11 @@ clean_dev_docker() {
         echo -e "  ${GRAY}${ICON_REVIEW}${NC} Docker unused data · review with docker system df"
         debug_log "Docker daemon-managed cleanup skipped by default"
     fi
+    if command -v podman > /dev/null 2>&1; then
+        note_activity
+        echo -e "  ${GRAY}${ICON_REVIEW}${NC} Podman unused data · review with podman system df"
+        debug_log "Podman daemon-managed cleanup skipped by default"
+    fi
 
     local orb_data=""
     orb_data=$(find_orbstack_data_dir 2> /dev/null || true)

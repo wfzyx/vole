@@ -28,6 +28,7 @@ _optimize_catalog_register() {
     MOLE_OPTIMIZE_SAFE_VALUES[index]="$6"
 }
 
+if [[ "$(uname -s)" == "Darwin" ]]; then
 _optimize_catalog_register cache_refresh opt_cache_refresh \
     "Finder Cache Refresh" "Finder Cache Refresh" \
     "Refresh QuickLook thumbnails & icon services cache" true
@@ -85,6 +86,26 @@ _optimize_catalog_register notification_cleanup opt_notification_cleanup \
 _optimize_catalog_register coreduet_cleanup opt_coreduet_cleanup \
     "Usage Data" "Usage Data" \
     "Clean old usage tracking data" true
+else
+_optimize_catalog_register journal_trim opt_journal_trim \
+    "Systemd Journal Trim" "Systemd Journal Trim" \
+    "Vacuum systemd journal logs to 100MB" true
+_optimize_catalog_register fstrim_optimize opt_fstrim_optimize \
+    "SSD Trim" "SSD Trim" \
+    "Trim unused filesystem blocks on SSDs" true
+_optimize_catalog_register systemd_failed_reset opt_systemd_failed_reset \
+    "Reset Failed Units" "Reset Failed Units" \
+    "Clear failed systemd user and system services" true
+_optimize_catalog_register font_cache_refresh opt_font_cache_refresh \
+    "Font Cache Refresh" "Font Cache Refresh" \
+    "Rebuild fontconfig caches" true
+_optimize_catalog_register desktop_database_update opt_desktop_database_update \
+    "Desktop Database Update" "Desktop Database Update" \
+    "Rebuild user desktop MIME database" true
+_optimize_catalog_register dnf_autoremove opt_dnf_autoremove \
+    "Package Autoremove" "Package Autoremove" \
+    "Clean orphaned dependencies" true
+fi
 
 optimize_catalog_index_for() {
     local requested_action="$1"

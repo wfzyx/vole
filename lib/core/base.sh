@@ -165,6 +165,7 @@ readonly MOLE_ONE_GB_BYTES=1000000000
 # Whitelist Configuration
 # ============================================================================
 readonly FINDER_METADATA_SENTINEL="FINDER_METADATA"
+if [[ "$(uname -s)" == "Darwin" ]]; then
 declare -a DEFAULT_WHITELIST_PATTERNS=(
     "$HOME/Library/Caches/ms-playwright*"
     "$HOME/.gradle/caches/*"
@@ -182,35 +183,31 @@ declare -a DEFAULT_WHITELIST_PATTERNS=(
     "$FINDER_METADATA_SENTINEL"
 )
 
-declare -a DEFAULT_OPTIMIZE_WHITELIST_PATTERNS=(
-)
-
-# Safety patterns always merge into an existing user whitelist file.
-# Replacement semantics (V1.7.5+) treat the file as the complete set, so
-# protections added later (FINDER_METADATA in V1.9.9) never reached users who
-# already had a whitelist. Only hard safety belongs here; optional convenience
-# defaults stay in DEFAULT_WHITELIST_PATTERNS and remain fully replaceable.
 declare -a SAFETY_WHITELIST_PATTERNS=(
     "$FINDER_METADATA_SENTINEL"
-    # `clean_user_essentials` sweeps every child of ~/Library/Caches, so a row
-    # that only lives in DEFAULT_WHITELIST_PATTERNS stops protecting these the
-    # moment a user saves one custom entry. Removing them breaks macOS search,
-    # font rendering and iCloud sync rather than costing a rebuild, and
-    # pypoetry/virtualenvs holds live interpreters every Poetry project points
-    # at, not cached downloads. The renv cache is the same shape: renv
-    # installs packages there and, by default, symlinks them into project
-    # libraries, so removing it leaves those libraries dangling. Its entry is
-    # spelled exactly like the old default row so saved files that still
-    # carry that line read it as this mandatory rule. Hard safety, so they
-    # merge unconditionally.
     "$HOME/Library/Caches/com.apple.FontRegistry*"
     "$HOME/Library/Caches/com.apple.spotlight*"
     "$HOME/Library/Caches/com.apple.Spotlight*"
     "$HOME/Library/Caches/CloudKit*"
     "$HOME/Library/Caches/pypoetry/virtualenvs*"
-    "$HOME/Library/Caches/org.R-project.R/R/renv/*"
+)
+else
+declare -a DEFAULT_WHITELIST_PATTERNS=(
+    "${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright*"
+    "$HOME/.gradle/caches/*"
+    "$HOME/.gradle/daemon/*"
+    "$HOME/.ollama/models/*"
+    "${XDG_CACHE_HOME:-$HOME/.cache}/tealdeer/tldr-pages"
+    "${XDG_CACHE_HOME:-$HOME/.cache}/JetBrains*"
+    "${XDG_CONFIG_HOME:-$HOME/.config}/JetBrains*"
 )
 
+declare -a SAFETY_WHITELIST_PATTERNS=(
+    "${XDG_CACHE_HOME:-$HOME/.cache}/pypoetry/virtualenvs*"
+)
+fi
+
+declare -a DEFAULT_OPTIMIZE_WHITELIST_PATTERNS=()
 # Resolve the cache root used by GitHub CLI without following filesystem
 # links. Both cleanup and whitelist inventory consume this value so a custom
 # XDG_CACHE_HOME cannot make the saved protection point at a different path.
@@ -238,6 +235,26 @@ mole_github_cli_cache_root() {
     printf '%s\n' "$cache_root"
 }
 
+mole_user_cache_dir() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        printf '%s\n' "$HOME/Library/Caches"
+    else
+        printf '%s\n' "${XDG_CACHE_HOME:-$HOME/.cache}"
+    fi
+}
+
+mole_user_trash_dir() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        printf '%s\n' "$HOME/.Trash"
+    else
+        local xdg_trash="${XDG_DATA_HOME:-$HOME/.local/share}/Trash/files"
+        if [[ -d "$HOME/.Trash" ]]; then
+            printf '%s\n' "$HOME/.Trash"
+        else
+            printf '%s\n' "$xdg_trash"
+        fi
+    fi
+}
 # Resolve the per-user cache root reported by macOS. Keep the resolver shared
 # so cleanup and whitelist inventory always describe the same path.
 mole_darwin_user_cache_root() {
@@ -540,8 +557,12 @@ load_mole_whitelist() {
 # ============================================================================
 # BSD Stat Compatibility
 # ============================================================================
-readonly STAT_BSD="/usr/bin/stat"
-
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    readonly STAT_BSD="/usr/bin/stat"
+else
+    _MOLE_CORE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    readonly STAT_BSD="${_MOLE_CORE_DIR}/../../bin/stat-compat"
+fi
 # Get file size in bytes
 get_file_size() {
     local file="$1"
@@ -602,6 +623,20 @@ detect_architecture() {
         return 0
     fi
 
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+        local distro=""
+        if [[ -f /etc/os-release ]]; then
+            distro=$(grep -E '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '"')
+        fi
+        if [[ -n "$distro" ]]; then
+            export MOLE_ARCH_CACHE="$distro ($(uname -m))"
+        else
+            export MOLE_ARCH_CACHE="Linux ($(uname -m))"
+        fi
+        echo "$MOLE_ARCH_CACHE"
+        return 0
+    fi
+
     if [[ "$(uname -m)" == "arm64" ]]; then
         export MOLE_ARCH_CACHE="Apple Silicon"
     else
@@ -609,7 +644,6 @@ detect_architecture() {
     fi
     echo "$MOLE_ARCH_CACHE"
 }
-
 get_free_space_target() {
     local target="/"
     if [[ -d "/System/Volumes/Data" ]]; then

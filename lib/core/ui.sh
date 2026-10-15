@@ -567,6 +567,9 @@ format_last_used_summary() {
 # Check if terminal has Full Disk Access
 # Returns 0 if FDA is granted, 1 if denied, 2 if unknown
 has_full_disk_access() {
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+        return 0
+    fi
     # Cache the result to avoid repeated checks
     if [[ -n "${MOLE_HAS_FDA:-}" ]]; then
         if [[ "$MOLE_HAS_FDA" == "1" ]]; then

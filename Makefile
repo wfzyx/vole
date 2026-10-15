@@ -42,6 +42,7 @@ build: mod-download
 	@echo "Building for local architecture..."
 	$(GO) build -ldflags="$(LDFLAGS)" -o $(BIN_DIR)/$(ANALYZE)-go $(ANALYZE_SRC)
 	$(GO) build -ldflags="$(LDFLAGS)" -o $(BIN_DIR)/$(STATUS)-go $(STATUS_SRC)
+	$(GO) build -ldflags="$(LDFLAGS)" -o $(BIN_DIR)/stat-compat ./cmd/stat-compat
 
 check:
 	./scripts/check.sh --no-format
@@ -71,4 +72,4 @@ release-arm64: mod-download
 
 clean:
 	@echo "Cleaning binaries..."
-	rm -f $(BIN_DIR)/$(ANALYZE)-* $(BIN_DIR)/$(STATUS)-* $(BIN_DIR)/$(ANALYZE)-go $(BIN_DIR)/$(STATUS)-go
+	rm -f $(BIN_DIR)/$(ANALYZE)-* $(BIN_DIR)/$(STATUS)-* $(BIN_DIR)/$(ANALYZE)-go $(BIN_DIR)/$(STATUS)-go $(BIN_DIR)/stat-compat

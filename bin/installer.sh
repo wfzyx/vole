@@ -98,7 +98,7 @@ handle_candidate_file() {
 
     [[ -L "$file" ]] && return 0 # Skip symlinks explicitly
     case "$file" in
-        *.dmg | *.pkg | *.mpkg | *.iso | *.xip)
+        *.dmg | *.pkg | *.mpkg | *.iso | *.xip | *.rpm | *.AppImage | *.appimage | *.run | *.deb | *.flatpakref)
             printf '%s\0' "$file"
             ;;
         *.zip)
@@ -148,11 +148,13 @@ scan_installers_in_path() {
         local -a scan_command=()
         if command -v fd > /dev/null 2>&1; then
             scan_command=(fd --show-errors --print0 --no-ignore --hidden --type f --max-depth "$max_depth"
-                -e dmg -e pkg -e mpkg -e iso -e xip -e zip . "$path")
+                -e dmg -e pkg -e mpkg -e iso -e xip -e zip -e rpm -e AppImage -e appimage -e run -e deb -e flatpakref . "$path")
         else
             scan_command=(find -H "$path" -maxdepth "$max_depth" -type f
                 \( -name '*.dmg' -o -name '*.pkg' -o -name '*.mpkg'
-                -o -name '*.iso' -o -name '*.xip' -o -name '*.zip' \) -print0)
+                -o -name '*.iso' -o -name '*.xip' -o -name '*.zip'
+                -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.appimage'
+                -o -name '*.run' -o -name '*.deb' -o -name '*.flatpakref' \) -print0)
         fi
         # Redirect only the producer's diagnostics; the timeout supervisor owns
         # its stderr, including debug traces. exec preserves the producer status.

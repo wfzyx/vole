@@ -1491,7 +1491,11 @@ start_cleanup() {
         return 0
     fi
 
-    echo -e "${PURPLE_BOLD}Clean Your Mac${NC}"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        echo -e "${PURPLE_BOLD}Clean Your Mac${NC}"
+    else
+        echo -e "${PURPLE_BOLD}Clean Your Linux${NC}"
+    fi
     echo ""
 
     if [[ "$DRY_RUN" != "true" && -t 0 ]]; then

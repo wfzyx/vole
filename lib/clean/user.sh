@@ -38,27 +38,21 @@ _user_safe_clean_process_guarded() {
 }
 
 clean_trash() {
-    if is_path_whitelisted "$HOME/.Trash"; then
+    local target_trash
+    target_trash=$(mole_user_trash_dir)
+    if is_path_whitelisted "$target_trash"; then
         return 0
     fi
     stop_section_spinner
 
-    # Without Full Disk Access ~/.Trash cannot be listed, so every count below
-    # would read zero and Trash would be skipped without a word. Listing is the
-    # only reliable probe: stat and -r both succeed under that block.
-    if [[ -d "$HOME/.Trash" ]] && ! command ls -A "$HOME/.Trash" > /dev/null 2>&1; then
-        echo -e "  ${GRAY}${ICON_WARNING}${NC} Trash · skipped, grant Full Disk Access to your terminal"
+    if [[ -d "$target_trash" ]] && ! command ls -A "$target_trash" > /dev/null 2>&1; then
+        echo -e "  ${GRAY}${ICON_WARNING}${NC} Trash · skipped"
         note_activity
         return 0
     fi
 
-    # Always count and delete directly. The previous Finder AppleScript path
-    # triggered macOS's "Show warning before emptying the Trash" dialog and
-    # blocked mo clean on user confirmation. Volume Trashes
-    # (/Volumes/*/.Trashes/<uid>/) are not handled here; mo clean only manages
-    # the user's home Trash.
     local trash_count
-    trash_count=$(command find "$HOME/.Trash" -mindepth 1 -maxdepth 1 -print0 2> /dev/null |
+    trash_count=$(command find "$target_trash" -mindepth 1 -maxdepth 1 -print0 2> /dev/null |
         tr -dc '\0' | wc -c | tr -d ' ' || echo "0")
     [[ "$trash_count" =~ ^[0-9]+$ ]] || trash_count="0"
 
@@ -106,7 +100,7 @@ clean_trash() {
                     record_dry_run_cleanup_target "$trash_item" "$trash_item_kb" 1 "$trash_size_known" || continue
                 fi
                 preview_count=$((preview_count + 1))
-            done < <(command find "$HOME/.Trash" -mindepth 1 -maxdepth 1 -print0 2> /dev/null || true)
+            done < <(command find "$target_trash" -mindepth 1 -maxdepth 1 -print0 2> /dev/null || true)
             if [[ $preview_count -gt 0 ]]; then
                 echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Trash · would empty, $preview_count items"
                 note_activity
@@ -132,7 +126,7 @@ clean_trash() {
         else
             skipped_count=$((skipped_count + 1))
         fi
-    done < <(command find "$HOME/.Trash" -mindepth 1 -maxdepth 1 -print0 2> /dev/null || true)
+    done < <(command find "$target_trash" -mindepth 1 -maxdepth 1 -print0 2> /dev/null || true)
 
     [[ -t 1 ]] && stop_inline_spinner
 
@@ -268,8 +262,10 @@ clean_user_essentials() {
     fi
     local -a user_cache_targets=()
     local user_cache_target
-    if [[ "$deno_cache_root_valid" == "true" ]]; then
-        for user_cache_target in "$HOME/Library/Caches"/*; do
+    local user_cache_dir
+    user_cache_dir=$(mole_user_cache_dir)
+    if [[ "$deno_cache_root_valid" == "true" && -d "$user_cache_dir" ]]; then
+        for user_cache_target in "$user_cache_dir"/*; do
             [[ -e "$user_cache_target" || -L "$user_cache_target" ]] || continue
             case "$deno_cache_root" in
                 "$user_cache_target" | "$user_cache_target"/*) continue ;;
@@ -1901,7 +1897,15 @@ clean_external_volume_target() {
 
 # Browser caches (Safari/Chrome/Edge/Firefox).
 clean_browsers() {
-    # Refusal reason for the Arc, Brave, Vivaldi, and QQ Browser process guards.
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+        local user_cache="${XDG_CACHE_HOME:-$HOME/.cache}"
+        safe_clean "$user_cache/google-chrome"/* "Chrome cache"
+        safe_clean "$user_cache/chromium"/* "Chromium cache"
+        safe_clean "$user_cache/mozilla/firefox"/* "Firefox cache"
+        safe_clean "$user_cache/BraveSoftware/Brave-Browser"/* "Brave cache"
+        safe_clean "$user_cache/microsoft-edge"/* "Edge cache"
+        return 0
+    fi
     local _MOLE_CLEAN_GUARD_REASON=""
     safe_clean ~/Library/Caches/com.apple.Safari/* "Safari cache"
     # Chrome/Chromium.

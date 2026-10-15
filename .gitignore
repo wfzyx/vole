@@ -72,6 +72,7 @@ mole-analyze
 # Go binaries
 bin/analyze-go
 bin/status-go
+bin/stat-compat
 bin/analyze-darwin-*
 bin/status-darwin-*
 

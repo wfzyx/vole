@@ -8,6 +8,7 @@ _MOLE_CACHES_MODULE_PATH="$_MOLE_CACHES_MODULE_DIR/${BASH_SOURCE[0]##*/}"
 source "$_MOLE_CACHES_MODULE_DIR/purge_shared.sh"
 # Preflight TCC prompts once to avoid mid-run interruptions.
 check_tcc_permissions() {
+    [[ "$(uname -s)" != "Darwin" ]] && return 0
     [[ -t 1 ]] || return 0
     local permission_flag="$HOME/.cache/mole/permissions_granted"
     [[ -f "$permission_flag" ]] && return 0

@@ -1026,24 +1026,29 @@ EOF
 
 show_version() {
     local os_ver
+    local is_mac=false
     if command -v sw_vers > /dev/null; then
         os_ver=$(sw_vers -productVersion)
+        is_mac=true
+    elif [[ -f /etc/os-release ]]; then
+        os_ver=$(grep -E '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '"')
     else
         os_ver="Unknown"
     fi
-
     local arch
     arch=$(uname -m)
 
     local kernel
     kernel=$(uname -r)
 
-    local sip_status
+    local sec_label="SIP"
+    local sec_status="Unknown"
     if command -v csrutil > /dev/null; then
-        sip_status=$(csrutil status 2> /dev/null | grep -o "enabled\|disabled" || echo "Unknown")
-        sip_status="$(LC_ALL=C tr '[:lower:]' '[:upper:]' <<< "${sip_status:0:1}")${sip_status:1}"
-    else
-        sip_status="Unknown"
+        sec_status=$(csrutil status 2> /dev/null | grep -o "enabled\|disabled" || echo "Unknown")
+        sec_status="$(LC_ALL=C tr '[:lower:]' '[:upper:]' <<< "${sec_status:0:1}")${sec_status:1}"
+    elif command -v getenforce > /dev/null; then
+        sec_label="SELinux"
+        sec_status=$(getenforce 2> /dev/null || echo "Unknown")
     fi
 
     local disk_free
@@ -1054,8 +1059,6 @@ show_version() {
         install_method="Nix"
     elif is_homebrew_install; then
         install_method="Homebrew"
-        # A --HEAD build keeps the release number in VERSION; only its keg
-        # name says which main commit it built.
         local head_keg_re='/Cellar/mole/HEAD-([0-9a-fA-F]+)(/|$)'
         if [[ "${SCRIPT_DIR:-}" =~ $head_keg_re ]]; then
             install_method="Homebrew (HEAD ${BASH_REMATCH[1]})"
@@ -1065,10 +1068,6 @@ show_version() {
     local channel
     channel=$(get_install_channel)
 
-    # A reader like `mo --version | head -1` closes the pipe after the first
-    # line; the remaining writes then fail with SIGPIPE and bash prints a
-    # "write error: Broken pipe" the user never asked for. A closed reader
-    # means "stop", so stop quietly.
     printf '\nMole version %s\n' "$VERSION" 2> /dev/null || return 0
     if [[ "$channel" == "nightly" ]]; then
         local commit
@@ -1079,10 +1078,14 @@ show_version() {
             printf 'Channel: Nightly\n' 2> /dev/null || return 0
         fi
     fi
-    printf 'macOS: %s\n' "$os_ver" 2> /dev/null || return 0
+    if [[ "$is_mac" == "true" ]]; then
+        printf 'macOS: %s\n' "$os_ver" 2> /dev/null || return 0
+    else
+        printf 'OS: %s\n' "$os_ver" 2> /dev/null || return 0
+    fi
     printf 'Architecture: %s\n' "$arch" 2> /dev/null || return 0
     printf 'Kernel: %s\n' "$kernel" 2> /dev/null || return 0
-    printf 'SIP: %s\n' "$sip_status" 2> /dev/null || return 0
+    printf '%s: %s\n' "$sec_label" "$sec_status" 2> /dev/null || return 0
     printf 'Disk Free: %s\n' "$disk_free" 2> /dev/null || return 0
     printf 'Install: %s\n' "$install_method" 2> /dev/null || return 0
     printf 'Shell: %s\n\n' "${SHELL:-Unknown}" 2> /dev/null || return 0

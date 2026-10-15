@@ -2065,6 +2065,122 @@ opt_login_items_audit() {
     fi
 }
 
+
+opt_journal_trim() {
+    if ! command -v journalctl > /dev/null 2>&1; then
+        opt_msg "journalctl not found, skipping"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_SKIPPED"
+        return 0
+    fi
+    if [[ "${MOLE_DRY_RUN:-0}" == "1" ]]; then
+        opt_msg "Systemd journal · would vacuum to 100MB"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
+    else
+        if optimize_sudo_available && sudo journalctl --vacuum-size=100M > /dev/null 2>&1; then
+            opt_msg "Systemd journal vacuumed to 100MB"
+            optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
+        else
+            journalctl --user --vacuum-size=50M > /dev/null 2>&1 || true
+            opt_msg "User systemd journal vacuumed"
+            optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
+        fi
+    fi
+}
+
+opt_fstrim_optimize() {
+    if ! command -v fstrim > /dev/null 2>&1; then
+        opt_msg "fstrim not found, skipping"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_SKIPPED"
+        return 0
+    fi
+    if [[ "${MOLE_DRY_RUN:-0}" == "1" ]]; then
+        opt_msg "SSD Trim · would trim mounted filesystems"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
+    else
+        if optimize_sudo_available && sudo fstrim -av > /dev/null 2>&1; then
+            opt_msg "SSD Trim completed on mounted filesystems"
+            optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
+        else
+            opt_msg "SSD Trim requires administrator access, skipped"
+            optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_UNCHANGED"
+        fi
+    fi
+}
+
+opt_systemd_failed_reset() {
+    if ! command -v systemctl > /dev/null 2>&1; then
+        opt_msg "systemctl not found, skipping"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_SKIPPED"
+        return 0
+    fi
+    if [[ "${MOLE_DRY_RUN:-0}" == "1" ]]; then
+        opt_msg "Failed units · would reset systemctl failed units"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
+    else
+        systemctl --user reset-failed > /dev/null 2>&1 || true
+        if optimize_sudo_available; then
+            sudo systemctl reset-failed > /dev/null 2>&1 || true
+        fi
+        opt_msg "Reset failed systemd units"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
+    fi
+}
+
+opt_font_cache_refresh() {
+    if ! command -v fc-cache > /dev/null 2>&1; then
+        opt_msg "fc-cache not found, skipping"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_SKIPPED"
+        return 0
+    fi
+    if [[ "${MOLE_DRY_RUN:-0}" == "1" ]]; then
+        opt_msg "Font cache · would rebuild fontconfig cache"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
+    else
+        fc-cache -f > /dev/null 2>&1 || true
+        opt_msg "Fontconfig cache rebuilt"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
+    fi
+}
+
+opt_desktop_database_update() {
+    if ! command -v update-desktop-database > /dev/null 2>&1; then
+        opt_msg "update-desktop-database not found, skipping"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_SKIPPED"
+        return 0
+    fi
+    local app_dir="$HOME/.local/share/applications"
+    if [[ "${MOLE_DRY_RUN:-0}" == "1" ]]; then
+        opt_msg "Desktop database · would update MIME cache"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
+    else
+        if [[ -d "$app_dir" ]]; then
+            update-desktop-database "$app_dir" > /dev/null 2>&1 || true
+        fi
+        opt_msg "User desktop database updated"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
+    fi
+}
+
+opt_dnf_autoremove() {
+    if ! command -v dnf > /dev/null 2>&1; then
+        opt_msg "dnf not found, skipping"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_SKIPPED"
+        return 0
+    fi
+    if [[ "${MOLE_DRY_RUN:-0}" == "1" ]]; then
+        opt_msg "Package autoremove · would check orphaned packages"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
+    else
+        if optimize_sudo_available; then
+            sudo dnf autoremove -y > /dev/null 2>&1 || true
+            opt_msg "DNF orphaned packages autoremoved"
+            optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
+        else
+            opt_msg "DNF autoremove requires administrator access, skipped"
+            optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_UNCHANGED"
+        fi
+    fi
+}
 # Dispatch optimization by action name.
 execute_optimization() {
     local action="$1"

@@ -220,9 +220,69 @@ macos_installer_candidate_still_eligible() {
     [[ "$current_identity" == "$expected_identity" ]]
 }
 
+clean_deep_system_linux() {
+    local deadline="$1"
+    start_section_spinner "Scanning Linux system caches..."
+
+    # 1. DNF / PackageKit cache
+    if command -v dnf > /dev/null 2>&1; then
+        if [[ "$DRY_RUN" == "true" ]]; then
+            local dnf_cache_kb=0
+            dnf_cache_kb=$(get_path_size_kb "/var/cache/dnf" 2> /dev/null || echo 0)
+            if [[ $dnf_cache_kb -gt 0 ]]; then
+                record_dry_run_cleanup_target "/var/cache/dnf" "$dnf_cache_kb" 1 true || true
+                echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} DNF cache · would clean $(format_bytes "$((dnf_cache_kb * 1024))")"
+                note_activity
+            fi
+        else
+            run_with_timeout "$MOLE_TIMEOUT_COMMAND_SEC" sudo dnf clean all > /dev/null 2>&1 || true
+            log_success "DNF package cache"
+            note_activity
+        fi
+    fi
+
+    # 2. Systemd journal
+    if command -v journalctl > /dev/null 2>&1; then
+        if [[ "$DRY_RUN" == "true" ]]; then
+            local journal_kb=0
+            journal_kb=$(get_path_size_kb "/var/log/journal" 2> /dev/null || echo 0)
+            if [[ $journal_kb -gt 102400 ]]; then
+                local reclaimable=$((journal_kb - 102400))
+                record_dry_run_cleanup_target "/var/log/journal" "$reclaimable" 1 true || true
+                echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Systemd journal · would vacuum to 100MB"
+                note_activity
+            fi
+        else
+            run_with_timeout "$MOLE_TIMEOUT_COMMAND_SEC" sudo journalctl --vacuum-size=100M > /dev/null 2>&1 || true
+            log_success "Systemd journal vacuum"
+            note_activity
+        fi
+    fi
+
+    # 3. Flatpak unused
+    if command -v flatpak > /dev/null 2>&1; then
+        if [[ "$DRY_RUN" == "true" ]]; then
+            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Flatpak · would clean unused runtimes"
+            note_activity
+        else
+            run_with_timeout "$MOLE_TIMEOUT_COMMAND_SEC" flatpak uninstall --unused -y > /dev/null 2>&1 || true
+            log_success "Flatpak unused runtimes"
+            note_activity
+        fi
+    fi
+
+    stop_section_spinner
+    return 0
+}
+
 # System caches, logs, and temp files.
 clean_deep_system() {
     stop_section_spinner
+    local system_cleanup_deadline=$((SECONDS + 120))
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+        clean_deep_system_linux "$system_cleanup_deadline"
+        return $?
+    fi
     # Keep the section bounded as a whole as well as at each inner scan. A
     # single slow filesystem may consume one inner timeout, but later families
     # stop once the two-minute section budget is exhausted.
