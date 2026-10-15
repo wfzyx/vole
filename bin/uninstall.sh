@@ -1412,7 +1412,98 @@ _scan_finalize_index() {
 # Scan applications and collect information. Orchestrates the four
 # phases (discover, partition, resolve, finalize) and owns the shared
 # temp files, spinner subprocess, INT trap, and metadata cache lock.
+scan_applications_linux() {
+    local temp_file
+    temp_file=$(create_temp_file) || return 1
+    local seen_names="|"
+
+    local -a scan_dirs=(
+        "/usr/share/applications"
+        "$HOME/.local/share/applications"
+        "/var/lib/flatpak/exports/share/applications"
+        "$HOME/.local/share/flatpak/exports/share/applications"
+    )
+
+    for dir in "${scan_dirs[@]}"; do
+        [[ -d "$dir" ]] || continue
+        for desktop in "$dir"/*.desktop; do
+            [[ -f "$desktop" ]] || continue
+            grep -qi "^NoDisplay=true" "$desktop" 2> /dev/null && continue
+
+            local name
+            name=$(grep -E "^Name=" "$desktop" 2> /dev/null | head -1 | cut -d= -f2-)
+            [[ -z "$name" ]] && continue
+
+            [[ "$seen_names" == *"|$name|"* ]] && continue
+            seen_names+="$name|"
+
+            local bundle_id
+            bundle_id=$(basename "$desktop" .desktop)
+
+            local size_kb=0
+            if command -v rpm > /dev/null 2>&1; then
+                local pkg
+                pkg=$(rpm -qf "$desktop" 2> /dev/null || true)
+                if [[ -n "$pkg" && "$pkg" != *"not owned"* ]]; then
+                    local bytes
+                    bytes=$(rpm -q --queryformat '%{SIZE}' "$pkg" 2> /dev/null || echo 0)
+                    if [[ "$bytes" =~ ^[0-9]+$ && $bytes -gt 0 ]]; then
+                        size_kb=$((bytes / 1024))
+                    fi
+                fi
+            fi
+
+            if [[ $size_kb -eq 0 ]]; then
+                local exec_cmd
+                exec_cmd=$(grep -E "^Exec=" "$desktop" 2> /dev/null | head -1 | cut -d= -f2- | awk '{print $1}')
+                if [[ -n "$exec_cmd" ]]; then
+                    local bin_path
+                    bin_path=$(command -v "$exec_cmd" 2> /dev/null || true)
+                    if [[ -x "$bin_path" ]]; then
+                        local bin_bytes
+                        bin_bytes=$("$STAT_BSD" -f%z "$bin_path" 2> /dev/null || echo 0)
+                        size_kb=$((bin_bytes / 1024))
+                    fi
+                fi
+            fi
+
+            local mtime
+            mtime=$("$STAT_BSD" -f%m "$desktop" 2> /dev/null || echo 0)
+
+            local human_size="Unknown"
+            if [[ $size_kb -gt 0 ]]; then
+                if [[ $size_kb -gt 1048576 ]]; then
+                    human_size="$((size_kb / 1048576))GB"
+                elif [[ $size_kb -gt 1024 ]]; then
+                    human_size="$((size_kb / 1024))MB"
+                else
+                    human_size="${size_kb}KB"
+                fi
+            fi
+
+            echo "$mtime|$desktop|$name|$bundle_id|$human_size|Unknown|$size_kb" >> "$temp_file"
+        done
+    done
+
+    if [[ ! -s "$temp_file" ]]; then
+        rm -f "$temp_file"
+        return 1
+    fi
+
+    local sorted_file="${temp_file}.sorted"
+    sort -t'|' -k7,7nr "$temp_file" > "$sorted_file"
+    rm -f "$temp_file"
+
+    register_temp_file "$sorted_file"
+    echo "$sorted_file"
+    return 0
+}
+
 scan_applications() {
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+        scan_applications_linux
+        return $?
+    fi
     local temp_file scan_raw_file merged_file refresh_file cache_snapshot_file discovered_file cached_rows_file uncached_rows_file
     temp_file=$(create_temp_file) || return 1
     scan_raw_file="${temp_file}.scan"

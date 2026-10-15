@@ -3113,7 +3113,90 @@ _batch_render_summary() {
 # (scan, preview/confirm, execute, summary) and manages the cross-phase
 # shared state, the SIGINT/SIGTERM trap, sudo keepalive, and the deferred
 # Dock / LaunchServices refresh.
+batch_uninstall_applications_linux() {
+    local total_size_freed=0
+    if [[ ${#selected_apps[@]} -eq 0 ]]; then
+        log_warning "No applications selected for uninstallation"
+        return 0
+    fi
+
+    echo ""
+    echo -e "${YELLOW}Warning: This will remove the selected application(s) and leftover files.${NC}"
+    local confirm=""
+    if [[ "${MOLE_DRY_RUN:-0}" == "1" ]]; then
+        echo -e "${YELLOW}Dry Run Mode: No applications will be removed.${NC}"
+    else
+        read -r -p "Are you sure you want to proceed? [y/N] " confirm
+        case "$confirm" in
+            [yY] | [yY][eE][sS]) ;;
+            *)
+                echo "Uninstallation cancelled."
+                return 0
+                ;;
+        esac
+    fi
+
+    for selected_app in "${selected_apps[@]}"; do
+        IFS='|' read -r _ app_path app_name bundle_id size last_used size_kb <<< "$selected_app"
+        echo -e "${BLUE}▶ Removing ${app_name}...${NC}"
+
+        if [[ "${MOLE_DRY_RUN:-0}" == "1" ]]; then
+            echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Would uninstall $app_name (${size})"
+            continue
+        fi
+
+        # 1. Check if Flatpak app
+        if command -v flatpak > /dev/null 2>&1 && flatpak info "$bundle_id" > /dev/null 2>&1; then
+            flatpak uninstall -y "$bundle_id" > /dev/null 2>&1 || true
+            echo -e "  ${GREEN}${ICON_SUCCESS}${NC} Uninstalled Flatpak: $bundle_id"
+        # 2. Check if RPM package owns the desktop file
+        elif command -v rpm > /dev/null 2>&1; then
+            local pkg
+            pkg=$(rpm -qf "$app_path" 2> /dev/null || true)
+            if [[ -n "$pkg" && "$pkg" != *"not owned"* ]]; then
+                if sudo dnf remove -y "$pkg" > /dev/null 2>&1; then
+                    echo -e "  ${GREEN}${ICON_SUCCESS}${NC} Removed package: $pkg"
+                else
+                    echo -e "  ${RED}${ICON_ERROR}${NC} Failed to remove package: $pkg"
+                fi
+            else
+                rm -f "$app_path" 2> /dev/null || true
+                echo -e "  ${GREEN}${ICON_SUCCESS}${NC} Removed desktop entry: $app_path"
+            fi
+        else
+            rm -f "$app_path" 2> /dev/null || true
+            echo -e "  ${GREEN}${ICON_SUCCESS}${NC} Removed desktop entry: $app_path"
+        fi
+
+        # 3. Clean leftovers in ~/.config, ~/.cache, ~/.local/share
+        local -a leftover_dirs=(
+            "$HOME/.config/$bundle_id"
+            "$HOME/.cache/$bundle_id"
+            "$HOME/.local/share/$bundle_id"
+            "$HOME/.var/app/$bundle_id"
+        )
+        for leftover in "${leftover_dirs[@]}"; do
+            if [[ -d "$leftover" ]]; then
+                local lsize=0
+                lsize=$(get_path_size_kb "$leftover" 2> /dev/null || echo 0)
+                rm -rf "$leftover" 2> /dev/null || true # SAFE: exact uninstalled application leftover directory
+                echo -e "  ${GREEN}${ICON_SUCCESS}${NC} Cleaned leftovers: $leftover"
+                total_size_freed=$((total_size_freed + lsize * 1024))
+            fi
+        done
+        total_size_freed=$((total_size_freed + size_kb * 1024))
+    done
+
+    echo ""
+    echo -e "${GREEN}${ICON_SUCCESS}${NC} Uninstall complete! Freed: $(bytes_to_human "$total_size_freed")"
+    return 0
+}
+
 batch_uninstall_applications() {
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+        batch_uninstall_applications_linux
+        return $?
+    fi
     local total_size_freed=0
 
     # shellcheck disable=SC2154
