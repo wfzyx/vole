@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || linux
 
 package main
 
@@ -1010,9 +1010,17 @@ func getDirectorySizeFromDuWithExcludeAndIgnores(ctx context.Context, path strin
 		ctx, cancel := context.WithTimeout(ctx, duTimeout)
 		defer cancel()
 
-		args := []string{"-skPx"}
-		for _, ignoreName := range ignoreNames {
-			args = append(args, "-I", ignoreName)
+		var args []string
+		if runtime.GOOS == "darwin" {
+			args = []string{"-skPx"}
+			for _, ignoreName := range ignoreNames {
+				args = append(args, "-I", ignoreName)
+			}
+		} else {
+			args = []string{"-skx"}
+			for _, ignoreName := range ignoreNames {
+				args = append(args, "--exclude="+ignoreName)
+			}
 		}
 		args = append(args, target)
 		cmd := exec.CommandContext(ctx, "du", args...)
@@ -1289,5 +1297,5 @@ func getLastAccessTimeFromInfo(info fs.FileInfo) time.Time {
 	if !ok {
 		return time.Time{}
 	}
-	return time.Unix(stat.Atimespec.Sec, stat.Atimespec.Nsec)
+	return statAccessTime(stat)
 }

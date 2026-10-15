@@ -22,13 +22,19 @@ var collectProcessesFunc = collectProcesses
 const zombieParentLimit = 3
 
 func collectProcesses() (processSample, error) {
-	if runtime.GOOS != "darwin" {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		return processSample{}, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	out, err := runCmd(ctx, "ps", "-Aceo", "pid=,ppid=,state=,pcpu=,pmem=,rss=,comm=", "-r")
+	var out string
+	var err error
+	if runtime.GOOS == "darwin" {
+		out, err = runCmd(ctx, "ps", "-Aceo", "pid=,ppid=,state=,pcpu=,pmem=,rss=,comm=", "-r")
+	} else {
+		out, err = runCmd(ctx, "ps", "-eo", "pid=,ppid=,state=,pcpu=,pmem=,rss=,comm=", "--sort=-%cpu")
+	}
 	if err == nil {
 		if procs, parseErr := parseProcessOutputStrict(out); parseErr == nil {
 			return processSample{processes: procs, parentsAvailable: true}, nil
@@ -84,8 +90,10 @@ func parseProcessOutputStrict(raw string) ([]ProcessInfo, error) {
 
 func parsePsAuxOutputStrict(raw string) ([]ProcessInfo, error) {
 	rows := strings.Split(strings.TrimSpace(raw), "\n")
-	expectedHeader := []string{"USER", "PID", "%CPU", "%MEM", "VSZ", "RSS", "TT", "STAT", "STARTED", "TIME", "COMMAND"}
-	if len(rows) < 2 || !slices.Equal(strings.Fields(rows[0]), expectedHeader) {
+	darwinHeader := []string{"USER", "PID", "%CPU", "%MEM", "VSZ", "RSS", "TT", "STAT", "STARTED", "TIME", "COMMAND"}
+	linuxHeader := []string{"USER", "PID", "%CPU", "%MEM", "VSZ", "RSS", "TTY", "STAT", "START", "TIME", "COMMAND"}
+	headerFields := strings.Fields(rows[0])
+	if len(rows) < 2 || (!slices.Equal(headerFields, darwinHeader) && !slices.Equal(headerFields, linuxHeader)) {
 		return nil, fmt.Errorf("unexpected ps aux header")
 	}
 

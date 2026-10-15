@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || linux
 
 package main
 
@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"slices"
@@ -17,23 +16,10 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"golang.org/x/sys/unix"
 )
 
 const trashTimeout = 30 * time.Second
 
-// trashBinary is Apple's own trash(8). It moves paths to the user Trash without
-// involving Finder, which is what makes deletion work over SSH: the Finder
-// AppleScript path raises a dialog on the physical machine that a remote user
-// cannot answer, so the delete only ever times out (discussion #474).
-//
-// Invoked by absolute path rather than a PATH lookup so a "trash" shadowed
-// earlier in the user's PATH can never receive a delete request. Arguments are
-// always absolute paths, so no "--" separator is needed; passing one would make
-// trash(8) report a missing file named "--" and exit non-zero even though it
-// still trashed the real target, which would trigger a duplicate delete via the
-// Finder fallback.
-const trashBinary = "/usr/bin/trash"
 
 func deletePathCmd(path string, counter *int64) tea.Cmd {
 	return func() tea.Msg {
@@ -143,36 +129,17 @@ func moveToTrash(path string) error {
 		return err
 	}
 
-	if trashErr := moveToTrashViaBinary(absPath); trashErr == nil {
+	ctx, cancel := context.WithTimeout(context.Background(), trashTimeout)
+	defer cancel()
+
+	if trashErr := moveViaPlatformBinary(ctx, absPath); trashErr == nil {
 		return nil
 	}
 	if filesystemErr := moveToTrashViaFilesystem(absPath); filesystemErr == nil {
 		return nil
 	}
 
-	return moveToTrashViaFinder(absPath)
-}
-
-// moveToTrashViaBinary moves absPath to Trash using trash(8). Returns an error
-// when the binary is missing so callers fall back to Finder.
-func moveToTrashViaBinary(absPath string) error {
-	if _, err := os.Stat(trashBinary); err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), trashTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, trashBinary, absPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("timeout moving to Trash")
-		}
-		return fmt.Errorf("failed to move to Trash: %s", strings.TrimSpace(string(output)))
-	}
-
-	return nil
+	return moveToTrashFallback(absPath)
 }
 
 // moveToTrashViaFilesystem provides a headless path for macOS versions before
@@ -196,7 +163,7 @@ func moveToTrashViaFilesystem(absPath string) error {
 			name = fmt.Sprintf("%s.%d.%d.%d", base, stamp, os.Getpid(), attempt)
 		}
 		dest := filepath.Join(trashDir, name)
-		err = unix.RenameatxNp(unix.AT_FDCWD, absPath, unix.AT_FDCWD, dest, unix.RENAME_EXCL)
+		err = atomicRenameExclusive(absPath, dest)
 		if err == nil {
 			return nil
 		}
@@ -208,52 +175,11 @@ func moveToTrashViaFilesystem(absPath string) error {
 	return fmt.Errorf("failed to choose unique Trash destination for %s", absPath)
 }
 
-func trashDirectoryForPath(absPath string) (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve home directory: %w", err)
-	}
-
-	var pathFS, homeFS unix.Statfs_t
-	if err := unix.Statfs(absPath, &pathFS); err != nil {
-		return "", fmt.Errorf("failed to inspect target volume: %w", err)
-	}
-	if err := unix.Statfs(home, &homeFS); err != nil {
-		return "", fmt.Errorf("failed to inspect home volume: %w", err)
-	}
-
-	if pathFS.Fsid == homeFS.Fsid {
-		trashDir := filepath.Join(home, ".Trash")
-		if err := ensureOwnedTrashDirectory(trashDir, true); err != nil {
-			return "", err
-		}
-		return trashDir, nil
-	}
-
-	mountPoint := strings.TrimRight(string(pathFS.Mntonname[:]), "\x00")
-	if mountPoint == "" {
-		return "", fmt.Errorf("target volume has no mount point")
-	}
-	trashRoot := filepath.Join(mountPoint, ".Trashes")
-	rootInfo, err := os.Lstat(trashRoot)
-	if err != nil {
-		return "", fmt.Errorf("volume Trash is unavailable: %w", err)
-	}
-	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
-		return "", fmt.Errorf("volume Trash is not a normal directory")
-	}
-
-	trashDir := filepath.Join(trashRoot, fmt.Sprintf("%d", os.Getuid()))
-	if err := ensureOwnedTrashDirectory(trashDir, true); err != nil {
-		return "", err
-	}
-	return trashDir, nil
-}
 
 func ensureOwnedTrashDirectory(path string, create bool) error {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) && create {
-		if err := os.Mkdir(path, 0o700); err != nil {
+		if err := os.MkdirAll(path, 0o700); err != nil {
 			return fmt.Errorf("failed to create Trash directory: %w", err)
 		}
 		info, err = os.Lstat(path)
@@ -276,27 +202,6 @@ func ensureOwnedTrashDirectory(path string, create bool) error {
 }
 
 // moveToTrashViaFinder remains as a last fallback for unusual volume layouts.
-func moveToTrashViaFinder(absPath string) error {
-	// Escape path for AppleScript (handle quotes and backslashes).
-	escapedPath := strings.ReplaceAll(absPath, "\\", "\\\\")
-	escapedPath = strings.ReplaceAll(escapedPath, "\"", "\\\"")
-
-	script := fmt.Sprintf(`tell application "Finder" to delete POSIX file "%s"`, escapedPath)
-
-	ctx, cancel := context.WithTimeout(context.Background(), trashTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "osascript", "-e", script)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("timeout moving to Trash")
-		}
-		return fmt.Errorf("failed to move to Trash: %s", strings.TrimSpace(string(output)))
-	}
-
-	return nil
-}
 
 func validateTrashTarget(path string) error {
 	if err := validatePath(path); err != nil {
@@ -425,10 +330,11 @@ func isCriticalAnalyzeDeletePath(path string) bool {
 		}
 	}
 
-	// A child directly under /Users is another account's home root, not an
+	// A child directly under /Users or /home is another account's home root, not an
 	// ordinary directory. Protect every account root while keeping its
 	// descendants available to the owning user.
-	if isDirectChildOfExistingRoot(path, "/Users") {
+	if filepath.Dir(path) == "/Users" || filepath.Dir(path) == "/home" ||
+		isDirectChildOfExistingRoot(path, "/Users") || isDirectChildOfExistingRoot(path, "/home") {
 		return true
 	}
 
