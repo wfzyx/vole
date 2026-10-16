@@ -235,7 +235,7 @@ clean_deep_system_linux() {
                 note_activity
             fi
         else
-            run_with_timeout "$MOLE_TIMEOUT_COMMAND_SEC" sudo dnf clean all > /dev/null 2>&1 || true
+            run_with_timeout "${MOLE_TIMEOUT_PKG_CLEANUP_SEC:-20}" sudo dnf clean all > /dev/null 2>&1 || true
             log_success "DNF package cache"
             note_activity
         fi
@@ -253,7 +253,7 @@ clean_deep_system_linux() {
                 note_activity
             fi
         else
-            run_with_timeout "$MOLE_TIMEOUT_COMMAND_SEC" sudo journalctl --vacuum-size=100M > /dev/null 2>&1 || true
+            run_with_timeout "${MOLE_TIMEOUT_PKG_CLEANUP_SEC:-20}" sudo journalctl --vacuum-size=100M > /dev/null 2>&1 || true
             log_success "Systemd journal vacuum"
             note_activity
         fi
@@ -265,7 +265,7 @@ clean_deep_system_linux() {
             echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Flatpak · would clean unused runtimes"
             note_activity
         else
-            run_with_timeout "$MOLE_TIMEOUT_COMMAND_SEC" flatpak uninstall --unused -y > /dev/null 2>&1 || true
+            run_with_timeout "${MOLE_TIMEOUT_PKG_CLEANUP_SEC:-20}" flatpak uninstall --unused -y > /dev/null 2>&1 || true
             log_success "Flatpak unused runtimes"
             note_activity
         fi
