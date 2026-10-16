@@ -113,7 +113,11 @@ trap cleanup_temp_files EXIT INT TERM
 
 # Version and update helpers
 VERSION="1.60.0"
-MOLE_TAGLINE="Deep clean and optimize your Mac."
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    MOLE_TAGLINE="Deep clean and optimize your Mac."
+else
+    MOLE_TAGLINE="Deep clean and optimize your Linux."
+fi
 
 is_touchid_configured() {
     grep -q "pam_tid.so" /etc/pam.d/sudo /etc/pam.d/sudo_local 2> /dev/null

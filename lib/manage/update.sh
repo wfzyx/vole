@@ -1015,12 +1015,11 @@ run_mole_command() {
 # UI helpers
 show_brand_banner() {
     cat << EOF
-${GREEN} __  __       _      ${NC}
-${GREEN}|  \/  | ___ | | ___ ${NC}
-${GREEN}| |\/| |/ _ \| |/ _ \\${NC}
-${GREEN}| |  | | (_) | |  __/${NC}  ${BLUE}https://mole.fit${NC}
-${GREEN}|_|  |_|\___/|_|\___|${NC}  ${GREEN}${MOLE_TAGLINE}${NC}
-
+${GREEN} __     __     _      ${NC}
+${GREEN} \ \   / /___ | | ___ ${NC}
+${GREEN}  \ \ / // _ \| |/ _ \\${NC}
+${GREEN}   \ V /| (_) | |  __/${NC}  ${BLUE}https://ko-fi.com/wfzyx${NC}
+${GREEN}    \_/  \___/|_|\___|${NC}  ${GREEN}${MOLE_TAGLINE}${NC}
 EOF
 }
 
@@ -1068,7 +1067,11 @@ show_version() {
     local channel
     channel=$(get_install_channel)
 
-    printf '\nMole version %s\n' "$VERSION" 2> /dev/null || return 0
+    if [[ "$is_mac" == "true" ]]; then
+        printf '\nMole version %s\n' "$VERSION" 2> /dev/null || return 0
+    else
+        printf '\nVole version %s (Linux fork of Mole)\n' "$VERSION" 2> /dev/null || return 0
+    fi
     if [[ "$channel" == "nightly" ]]; then
         local commit
         commit=$(get_install_commit)
@@ -1124,6 +1127,9 @@ show_help() {
     echo
     printf "%s%s%s\n" "$BLUE" "OPTIONS" "$NC"
     printf "  %s%-28s%s %s\n" "$GREEN" "--debug" "$NC" "Show detailed operation logs"
+    echo
+    printf "%s%s%s\n" "$BLUE" "SUPPORT" "$NC"
+    printf "  %s%-28s%s %s\n" "$YELLOW" "Ko-fi" "$NC" "https://ko-fi.com/wfzyx"
     echo
 }
 
