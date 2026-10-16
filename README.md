@@ -74,9 +74,20 @@ vo status                    # Live system health dashboard
 vo purge                     # Interactively purge project dependencies (node_modules, target, etc.)
 vo installer                 # Find and remove leftover .rpm, .AppImage, .deb files
 ```
-
 ---
 
+## 🗺️ Distro Roadmap
+
+Vole is expanding native package manager, service management, and cache layout support across all major Linux families:
+
+- [x] **RPM-based**: Fedora, RHEL, CentOS Stream, Rocky Linux, AlmaLinux (`dnf`, `rpm`)
+- [ ] **Arch-based**: Arch Linux, Manjaro, EndeavourOS (`pacman`, `yay`, `paru`)
+- [ ] **Deb-based**: Debian, Ubuntu, Linux Mint, Pop!_OS (`apt`, `dpkg`)
+- [ ] **openSUSE / SUSE-based**: Tumbleweed, Leap (`zypper`, `rpm`)
+- [ ] **NixOS / Guix**: Declarative package and store pruning
+- [ ] **Desktop GUI**: Native GTK4/Qt6 or Tauri desktop companion app
+
+---
 ## Support & Sponsorship
 
 If Vole saves you disk space or makes managing your Linux system easier, please consider supporting development!
